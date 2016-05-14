@@ -18,6 +18,7 @@ reload(microstructure.features)
 os.chdir('/home/bbales2/lukestuff')
 
 #%%
+processed = pandas.DataFrame.from_csv('processed.csv')
 df = pandas.DataFrame.from_csv('scaled_2.csv')
 #%%
 
@@ -44,7 +45,7 @@ def buildLabels(data, feature):
     labels = []
 
     for index, row in data.iterrows():
-        labels.append(class2idx[row[feature]])
+        labels.append(float(row[feature]))
 
     labels = numpy.array(labels)
 
@@ -70,7 +71,7 @@ Xs2 = buildFeatures(test).astype('double')
 #Xs2 /= std
 #%%
 
-for feature in ["pct", "core", "aged", "temp", "type"]:
+for feature in ["pct", "temp"]:#, "core", "aged", "type"
     classes = list(set(df[feature]))
     class2idx = dict([(v, k) for k, v in enumerate(classes)])
 
@@ -111,10 +112,11 @@ for feature in ["pct", "core", "aged", "temp", "type"]:
     Xs6 = Xs5[idxs]
     labels6 = labels5[idxs]
 
-    svm = sklearn.svm.SVC(C = 1.0, gamma = 1e-5)
-    print "{0}, Train: ".format(feature), numpy.mean(sklearn.cross_validation.cross_val_score(svm, Xs4[:10000], labels4[:10000]))
+    svm = sklearn.svm.SVR(C = 7.2, gamma = 1e-5)
+
+    #print "{0}, Train: ".format(feature), numpy.mean(sklearn.cross_validation.cross_val_score(svm, Xs4[:10000], labels4[:10000]))
     svm.fit(Xs4[:10000], labels4[:10000])
-    print "Test: ", 1.0 - numpy.count_nonzero(svm.predict(Xs6[:10000]) - labels6[:10000]) / 10000.0
+    #print "Test: ", 1.0 - numpy.count_nonzero(svm.predict(Xs6[:10000]) - labels6[:10000]) / 10000.0
     print ''
     1/0
 #%%
@@ -158,17 +160,19 @@ numpy.random.shuffle(idxs)
 Xs4 = Xs3[idxs]
 labels4 = labels3[idxs]
 #%%
-svm = sklearn.svm.SVC()
+svm = sklearn.svm.SVR()
 
-Cs = numpy.logspace(-2, 2, 8)
-gammas = numpy.logspace(-5, 2, 10)
+Cs = numpy.logspace(0, 2, 8)
+gammas = numpy.logspace(-6, -4, 10)
 
 accuracies = numpy.zeros((8, 10))
 for i, c in enumerate(Cs):
     for j, gamma in enumerate(gammas):
-        svm = sklearn.svm.SVC(C = c, gamma = gamma)
+        svm = sklearn.svm.SVR(C = c, gamma = gamma)
 
-        accuracies[i, j] = numpy.mean(sklearn.cross_validation.cross_val_score(svm, Xs4[:1000], labels4[:1000]))
+        svm.fit(Xs4[:1000], labels4[:1000])
+
+        accuracies[i, j] = svm.score(Xs6[:1000], labels6[:1000])
         print i, j
 
 plt.imshow(accuracies, interpolation = 'NONE')
@@ -184,7 +188,7 @@ svm.fit(Xs4[:10000], labels4[:10000])
 #%%
 numpy.count_nonzero(svm.predict(Xs3[0:15000]) - labels3[0:15000])
 #%%
-
+b = 8
 for feature in ["pct", "core", "aged", "temp", "type"]:
     classes = list(set(df[feature]))
     class2idx = dict([(v, k) for k, v in enumerate(classes)])
@@ -203,7 +207,11 @@ for feature in ["pct", "core", "aged", "temp", "type"]:
         toplot = svm.predict(boxes.reshape((-1, boxes.shape[-1]))).reshape((boxes.shape[0], boxes.shape[1]))
 
         plt.imshow(im, interpolation = 'NONE', cmap = plt.cm.gray)
-        plt.imshow(toplot, alpha = 0.5, interpolation = 'NONE', extent = (0, im.shape[1], im.shape[0], 0))
+        plt.imshow(toplot, alpha = 0.35, interpolation = 'NONE', extent = (0, im.shape[1], im.shape[0], 0), vmin = 0.0, vmax = 5.0)
+        plt.title("{0}".format(os.path.basename(processed.iloc[row["original_index"]].f)))
+        plt.colorbar()
+        plt.gcf().set_size_inches((16.5, 10))
+        plt.gcf().savefig('r_guess/{0}.png'.format(index), bbox_inches = 'tight', pad_inches = 0)
         plt.show()
 
         print "{0}: {1}: {2}".format(i, feature, row[feature])
