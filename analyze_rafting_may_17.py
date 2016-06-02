@@ -24,8 +24,8 @@ os.chdir('/home/bbales2/lukestuff')
 
 def get_features(im):
     b = 8
-    features = skimage.feature.local_binary_pattern(im, 7, 3.0)
-    hist = microstructure.features.labels2boxes(features, int(2**7), size = b + 1, stride = b, padding_mode = 'reflect')
+    features = skimage.feature.local_binary_pattern(im, 4, 3.0)
+    hist = microstructure.features.labels2boxes(features, int(2**4), size = b + 1, stride = b, padding_mode = 'reflect')
     hist = microstructure.features.hists2boxes(hist, b = 9, padding_mode = 'reflect')
 
     return hist
@@ -49,10 +49,12 @@ for filename, y in filenames:
     im -= numpy.mean(im.flatten())
     im /= numpy.std(im.flatten())
 
+    print im.shape
+
     ims.append(im)
 
     train = im[:3 * im.shape[0] / 4, :]
-    test = im[3 * im.shape[0] / 4:, :]#sklearn.cross_validation.train_test_split(list(im))
+    test = skimage.filters.gaussian_filter(im[3 * im.shape[0] / 4:, :], 1.0)#sklearn.cross_validation.train_test_split(list(im))
 
     train = numpy.array(train)
     test = numpy.array(test)
@@ -89,6 +91,12 @@ numpy.random.shuffle(idxs)
 
 trainingx = trainingx[idxs]
 trainingy = trainingy[idxs]
+
+plt.imshow(test)
+plt.show()
+
+plt.imshow(train)
+plt.show()
 
 #%%
 
@@ -127,8 +135,49 @@ plt.show()
 
 #%%
 
-#for im, (filename, y) in zip(ims, filenames):
-if True:
+svm = sklearn.linear_model.LinearRegression()
+svm.fit(trainingx[:1000], trainingy[:1000])
+
+print svm.score(testingx, testingy)
+
+rafting = svm.predict(testingx.reshape((-1, testingx.shape[-1]))).reshape((3 * testx.shape[0], testx.shape[1]))
+plt.imshow(rafting)
+plt.show()
+
+scores = []
+for i in range(0, testingx.shape[1], 1):
+    fs2 = list(reversed(numpy.argsort(numpy.abs(svm.coef_))))
+
+    fs = fs2[:i + 1]
+
+    print i, len(fs)
+
+    lr2 = sklearn.linear_model.LinearRegression()
+    lr2.fit(trainingx[:1000, fs], trainingy[:1000])
+
+    rafting = lr2.predict(testingx[:, fs]).reshape((3 * testx.shape[0], testx.shape[1]))
+    plt.imshow(rafting)
+    plt.title(str(i))
+    plt.show()
+
+    scores.append(lr2.score(testingx[:, fs], testingy))
+    #print
+
+plt.plot(scores)
+plt.show()
+#%%
+for i in fs2:
+    print svm.coef_[i], "{0:04b}".format(i)
+
+#%%
+
+for im, (filename, y) in zip(ims, filenames):
+#if True:
+#    im = skimage.io.imread('gtdmix.png', as_grey = True).astype('double')
+#    im -= numpy.mean(im.flatten())
+#    im /= numpy.std(im.flatten())
+
+    filename = 'gtdmix'
 
     print im.shape
 
@@ -147,6 +196,7 @@ if True:
     plt.imshow(im, interpolation = 'NONE', cmap = plt.cm.gray)
     plt.imshow(rafting, interpolation = 'NONE', extent = (0, im.shape[1], im.shape[0], 0), alpha = 0.5, vmin = 0.0, vmax = 5.0)
     plt.title(filename)
+    plt.gcf().set_size_inches((17, 10))
     plt.colorbar()
     plt.show()
     #plt.imshow(rafting, interpolation = 'NONE', vmin = 0.0, vmax = 5.0)
