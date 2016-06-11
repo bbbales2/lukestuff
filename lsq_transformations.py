@@ -16,6 +16,7 @@ import matplotlib.patches
 import sklearn.svm
 import matplotlib.pyplot as plt
 import skimage.filters
+import sys
 
 os.chdir('/home/bbales2/microstructure_python')
 
@@ -37,8 +38,53 @@ for i in range(fs.shape[1]):
     plt.hist(fs[:, i])
     plt.show()
 #%%
+sys.path.append('/home/bbales2/caffe-tensorflow')
+
+import googlenet
+
+import tensorflow as tf
+sess = tf.InteractiveSession()
+
+tens = tf.placeholder(tf.float32, shape = [1, 256, 256, 3])
+
+# Create an instance, passing in the input data
+with tf.variable_scope("image_filters", reuse = False):
+    net = googlenet.GoogleNet({'data' : tens})
+
+with tf.variable_scope("image_filters", reuse = True):
+    net.load('/home/bbales2/caffe-tensorflow/googlenet.tf', sess, ignore_missing = True)
+#%%
+#%%
+target = [net.layers[name] for name in net.layers if name == 'inception_4a_1x1'][0]
+
+im = skimage.io.imread('/home/bbales2/rafting/nrafting2a/images_{0}/signal{1}.png'.format(1, 0), as_grey = True)
+if True:
+    if True:
+        im2 = numpy.array((im, im, im)).astype('float')
+
+        im2 -= im2.min()
+        im2 /= im2.max() / 255.0
+
+        im2 = numpy.rollaxis(im2, 1, 0)
+        im2 = numpy.rollaxis(im2, 2, 1)
+
+        mean = numpy.array([104., 117., 124.])
+
+        for c in range(3):
+            im2[:, :, c] -= mean[c]
+
+        im2 = im2.reshape((1, im2.shape[0], im2.shape[1], im2.shape[2]))
+
+        print im2.shape
+
+        hist = sess.run(target, feed_dict = { tens : im2 })[0]
+#%%
 plt.plot(fs[:, 7], fs[:, 8], '*')
 plt.show()
+#%%
+b = 9
+features = skimage.feature.local_binary_pattern(im, 7, 3.0)
+hist = microstructure.features.labels2boxes(features, int(2**7), size = b + 1, stride = b, padding_mode = 'reflect')
 #%%
 
 def run_test():
@@ -46,21 +92,39 @@ def run_test():
     testFilenames = []
 
     def get_features(im):
-        features = skimage.feature.local_binary_pattern(im, 7, 3.0)
-        hist = microstructure.features.labels2boxes(features, int(2**7), size = b + 1, stride = b, padding_mode = 'reflect')
-        #hog = microstructure.features.HOG(16, padding = False)
-        #hist = hog.run(im)
+        im2 = numpy.array((im, im, im)).astype('float')
+
+        im2 -= im2.min()
+        im2 /= im2.max() / 255.0
+
+        im2 = numpy.rollaxis(im2, 1, 0)
+        im2 = numpy.rollaxis(im2, 2, 1)
+
+        mean = numpy.array([104., 117., 124.])
+
+        for c in range(3):
+            im2[:, :, c] -= mean[c]
+
+        im2 = im2.reshape((1, im2.shape[0], im2.shape[1], im2.shape[2]))
+
+        hist = sess.run(target, feed_dict = { tens : im2 })[0]
+        #ff = 7
+        #features = skimage.feature.local_binary_pattern(im, ff, 3.0)
+        #hist = microstructure.features.labels2boxes(features, int(2**ff), size = b + 1, stride = b, padding_mode = 'reflect')
+        #hog = microstructure.features.hog2(im, bins = 20, stride = b, sigma = 1.0)
+        #hist = microstructure.features.hog2boxes(hog, b, padding_mode = 'reflect')
+        hist = microstructure.features.hists2boxes(hist, b, padding_mode = 'reflect')
 
         return hist
 
     dups = 8
     for y in train:
-        for r in range(dups):##rafting2a1h5_rotated
-            trainFilenames.append(('/home/bbales2/rafting/nrafting2a/images_{0}/signal{1}.png'.format(y, r * 4), float(y)))
+        for r in range(dups):##rafting2a1h5_rotatednrafting2a
+            trainFilenames.append(('/home/bbales2/rafting/rafting2a1h5/images_{0}/signal{1}.png'.format(y, r * 4), float(y)))
 
     for y in test:
-        for r in range(dups):#nrafting2a
-            testFilenames.append(('/home/bbales2/rafting/nrafting2a/images_{0}/signal{1}.png'.format(y, 128 + r * 4), float(y)))
+        for r in range(dups):#nrafting2anrafting2a
+            testFilenames.append(('/home/bbales2/rafting/rafting2a1h5/images_{0}/signal{1}.png'.format(y, 128 + r * 4), float(y)))
 
     def extract_features(filenames, sigma, noise):
         Xs = []
@@ -106,11 +170,12 @@ def run_test():
     trainingx = trainingx[idxs]
     trainingy = trainingy[idxs]
 
-    svm = sklearn.linear_model.LinearRegression()
+    svm = sklearn.linear_model.LinearRegression()#Ridge
     svm.fit(trainingx[:10000], trainingy[:10000])
 
     train_predicts = []
     train_truths = []
+    #train_errors = []
     for trainx, trainy, trainim in zip(trainxs, trainys, trainims):
         trainingx = trainx.reshape((-1, trainx.shape[-1]))
         trainingy = trainy.reshape((-1))
@@ -125,6 +190,7 @@ def run_test():
     #testRMSs = []
     test_predicts = []
     test_truths = []
+    #test_errors = []
     for testx, testy, testim in zip(testxs, testys, testims):
         testingx = testx.reshape((-1, testx.shape[-1]))
         testingy = testy.reshape((-1))
@@ -134,7 +200,7 @@ def run_test():
         #rms = numpy.sqrt(numpy.mean(svm.predict(testingx)))
         #print numpy.sqrt(numpy.mean(svm.predict(testingx)))
 
-        #testRMSs.append((numpy.mean(svm.predict(testingx)), testy[0, 0]))
+        #test_errors.append((numpy.mean(svm.predict(testingx) - testy[0, 0])))
         test_predicts.extend(svm.predict(testingx))
         test_truths.extend(testy.flatten())
 
@@ -153,7 +219,7 @@ sigma1 = 0.0
 noise0 = 0.0
 noise1 = 0.0
 
-b = 51
+b = 5
 
 trains = [[0, 9], [0, 4, 9], [0, 3, 5, 7, 9], [4, 5], [4, 5, 6], [3, 4, 5, 6, 7]]
 tests = [[1, 2, 3, 4, 5, 6, 7, 8], [1, 2, 3, 5, 6, 7, 8], [1, 2, 4, 6, 8], [0, 1, 2, 3, 6, 7, 8, 9], [0, 1, 2, 3, 7, 8, 9], [0, 1, 2, 8, 9]]
@@ -165,14 +231,24 @@ for train, test in zip(trains, tests):
     values = []
     testOrTrain = []
     for xv in sorted(list(set(trainxs))):
-        values.append(trainys[trainxs == xv])
+        preds = trainys[trainxs == xv]
+        values.append(preds)
         positions.append(xv)
         testOrTrain.append(0)
 
+    tr2 = 1 - sum((trainxs - trainys)**2) / sum((trainys - numpy.mean(trainys))**2)
+
+    print 'Train R^2 ', tr2
+
     for xv in sorted(list(set(testxs))):
-        values.append(testys[testxs == xv])
+        preds = testys[testxs == xv]
+        values.append(preds)
         positions.append(xv)
         testOrTrain.append(1)
+
+    ttr2 = 1 - sum((testxs - testys)**2) / sum((testys - numpy.mean(testys))**2)
+
+    print 'Test R^2 ', ttr2
 
     positions, values, testOrTrain = zip(*sorted(zip(positions, values, testOrTrain), key = lambda x : x[0]))
 
