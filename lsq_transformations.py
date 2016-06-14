@@ -37,6 +37,15 @@ fs = hogs.reshape((-1, hogs.shape[-1]))
 for i in range(fs.shape[1]):
     plt.hist(fs[:, i])
     plt.show()
+
+#%%
+im2 = im - numpy.mean(im.flatten())
+im2 /= numpy.std(im2.flatten())
+
+im2 += numpy.random.randn(im.shape[0], im.shape[1]) * 0.5
+plt.imshow(im2, cmap = plt.cm.gray, interpolation = 'NONE')
+plt.gcf().set_size_inches((10, 8))
+plt.show()
 #%%
 sys.path.append('/home/bbales2/caffe-tensorflow')
 
@@ -54,30 +63,28 @@ with tf.variable_scope("image_filters", reuse = False):
 with tf.variable_scope("image_filters", reuse = True):
     net.load('/home/bbales2/caffe-tensorflow/googlenet.tf', sess, ignore_missing = True)
 #%%
-#%%
 target = [net.layers[name] for name in net.layers if name == 'inception_4a_1x1'][0]
 
 im = skimage.io.imread('/home/bbales2/rafting/nrafting2a/images_{0}/signal{1}.png'.format(1, 0), as_grey = True)
-if True:
-    if True:
-        im2 = numpy.array((im, im, im)).astype('float')
 
-        im2 -= im2.min()
-        im2 /= im2.max() / 255.0
+im2 = numpy.array((im, im, im)).astype('float')
 
-        im2 = numpy.rollaxis(im2, 1, 0)
-        im2 = numpy.rollaxis(im2, 2, 1)
+im2 -= im2.min()
+im2 /= im2.max() / 255.0
 
-        mean = numpy.array([104., 117., 124.])
+im2 = numpy.rollaxis(im2, 1, 0)
+im2 = numpy.rollaxis(im2, 2, 1)
 
-        for c in range(3):
-            im2[:, :, c] -= mean[c]
+mean = numpy.array([104., 117., 124.])
 
-        im2 = im2.reshape((1, im2.shape[0], im2.shape[1], im2.shape[2]))
+for c in range(3):
+    im2[:, :, c] -= mean[c]
 
-        print im2.shape
+im2 = im2.reshape((1, im2.shape[0], im2.shape[1], im2.shape[2]))
 
-        hist = sess.run(target, feed_dict = { tens : im2 })[0]
+hist = sess.run(target, feed_dict = { tens : im2 })[0]
+
+print hist.shape
 #%%
 plt.plot(fs[:, 7], fs[:, 8], '*')
 plt.show()
@@ -87,44 +94,52 @@ features = skimage.feature.local_binary_pattern(im, 7, 3.0)
 hist = microstructure.features.labels2boxes(features, int(2**7), size = b + 1, stride = b, padding_mode = 'reflect')
 #%%
 
+def nn_feats(im):
+    im2 = numpy.array((im, im, im)).astype('float')
+
+    im2 -= im2.min()
+    im2 /= im2.max() / 255.0
+
+    im2 = numpy.rollaxis(im2, 1, 0)
+    im2 = numpy.rollaxis(im2, 2, 1)
+
+    mean = numpy.array([104., 117., 124.])
+
+    for c in range(3):
+        im2[:, :, c] -= mean[c]
+
+    im2 = im2.reshape((1, im2.shape[0], im2.shape[1], im2.shape[2]))
+
+    hist = sess.run(target, feed_dict = { tens : im2 })[0]
+    hist = microstructure.features.hists2boxes(hist, (b + 15) / 16, padding_mode = 'reflect')
+
+    return hist
+
+def lbp_feats(im):
+    ff = 7
+    features = skimage.feature.local_binary_pattern(im, ff, 3.0)
+    hist = microstructure.features.labels2boxes(features, int(2**ff), size = b + 1, stride = b, padding_mode = 'reflect')
+
+    return hist
+
+def hog_feats(im):
+    hog = microstructure.features.hog2(im, bins = 20, stride = b, sigma = 1.0)
+    hist = microstructure.features.hog2boxes(hog, b, padding_mode = 'reflect')
+
+    return hist
+
 def run_test():
     trainFilenames = []
     testFilenames = []
 
-    def get_features(im):
-        im2 = numpy.array((im, im, im)).astype('float')
-
-        im2 -= im2.min()
-        im2 /= im2.max() / 255.0
-
-        im2 = numpy.rollaxis(im2, 1, 0)
-        im2 = numpy.rollaxis(im2, 2, 1)
-
-        mean = numpy.array([104., 117., 124.])
-
-        for c in range(3):
-            im2[:, :, c] -= mean[c]
-
-        im2 = im2.reshape((1, im2.shape[0], im2.shape[1], im2.shape[2]))
-
-        hist = sess.run(target, feed_dict = { tens : im2 })[0]
-        #ff = 7
-        #features = skimage.feature.local_binary_pattern(im, ff, 3.0)
-        #hist = microstructure.features.labels2boxes(features, int(2**ff), size = b + 1, stride = b, padding_mode = 'reflect')
-        #hog = microstructure.features.hog2(im, bins = 20, stride = b, sigma = 1.0)
-        #hist = microstructure.features.hog2boxes(hog, b, padding_mode = 'reflect')
-        hist = microstructure.features.hists2boxes(hist, b, padding_mode = 'reflect')
-
-        return hist
-
     dups = 8
     for y in train:
-        for r in range(dups):##rafting2a1h5_rotatednrafting2a
-            trainFilenames.append(('/home/bbales2/rafting/rafting2a1h5/images_{0}/signal{1}.png'.format(y, r * 4), float(y)))
+        for r in range(dups):##rafting2a1h5_rotatedrafting2a1h5
+            trainFilenames.append(('/home/bbales2/rafting/nrafting2a/images_{0}/signal{1}.png'.format(y, r * 4), float(y)))
 
     for y in test:
-        for r in range(dups):#nrafting2anrafting2a
-            testFilenames.append(('/home/bbales2/rafting/rafting2a1h5/images_{0}/signal{1}.png'.format(y, 128 + r * 4), float(y)))
+        for r in range(dups):#nrafting2anrafting2arafting2a1h5
+            testFilenames.append(('/home/bbales2/rafting/nrafting2a/images_{0}/signal{1}.png'.format(y, 128 + r * 4), float(y)))
 
     def extract_features(filenames, sigma, noise):
         Xs = []
@@ -138,21 +153,22 @@ def run_test():
             im -= numpy.mean(im.flatten())
             im /= numpy.std(im.flatten())
 
-            if noise > 0.0:
-                im += numpy.random.randn(*im.shape) * noise
+            for noiseSigma in numpy.linspace(*noise):
+                if noise > 0.0:
+                    im2 = im + numpy.random.randn(*im.shape) * noiseSigma
 
-            if sigma > 0.0:
-                im = skimage.filters.gaussian(im, sigma)
+                if sigma > 0.0:
+                    im2 = skimage.filters.gaussian(im2, sigma)
 
-            ims.append(im)
+                ims.append(im2)
 
-            trainx = get_features(im)
+                trainx = get_features(im2)
 
-            Xs.append(trainx)
+                Xs.append(trainx)
 
-            trainy = numpy.ones((trainx.shape[0], trainx.shape[1])) * y
+                trainy = numpy.ones((trainx.shape[0], trainx.shape[1])) * y
 
-            Ys.append(trainy)
+                Ys.append(trainy)
 
         Xs = numpy.array(Xs)
         Ys = numpy.array(Ys)
@@ -170,7 +186,7 @@ def run_test():
     trainingx = trainingx[idxs]
     trainingy = trainingy[idxs]
 
-    svm = sklearn.linear_model.LinearRegression()#Ridge
+    svm = sklearn.linear_model.Ridge(1e-5)#LinearRegression#
     svm.fit(trainingx[:10000], trainingy[:10000])
 
     train_predicts = []
@@ -216,72 +232,130 @@ def run_test():
 #%%
 sigma0 = 0.0
 sigma1 = 0.0
-noise0 = 0.0
-noise1 = 0.0
+noise0 = [0.0, 1.0, 4]
+noise1 = [0.87, 0.87, 1]
 
-b = 5
+get_features = hog_feats
 
-trains = [[0, 9], [0, 4, 9], [0, 3, 5, 7, 9], [4, 5], [4, 5, 6], [3, 4, 5, 6, 7]]
-tests = [[1, 2, 3, 4, 5, 6, 7, 8], [1, 2, 3, 5, 6, 7, 8], [1, 2, 4, 6, 8], [0, 1, 2, 3, 6, 7, 8, 9], [0, 1, 2, 3, 7, 8, 9], [0, 1, 2, 8, 9]]
+trainR2s2 = []
+testR2s2 = []
+for b in numpy.linspace(7, 96, 10):
+    b = int(numpy.round(b))
 
-for train, test in zip(trains, tests):
-    trainxs, trainys, testxs, testys = run_test()
+    trains = [[0, 9], [0, 4, 9], [0, 3, 5, 7, 9], [4, 5], [4, 5, 6], [3, 4, 5, 6, 7]]
+    tests = [[1, 2, 3, 4, 5, 6, 7, 8], [1, 2, 3, 5, 6, 7, 8], [1, 2, 4, 6, 8], [0, 1, 2, 3, 6, 7, 8, 9], [0, 1, 2, 3, 7, 8, 9], [0, 1, 2, 8, 9]]
 
-    positions = []
-    values = []
-    testOrTrain = []
-    for xv in sorted(list(set(trainxs))):
-        preds = trainys[trainxs == xv]
-        values.append(preds)
-        positions.append(xv)
-        testOrTrain.append(0)
+    trainR2s = []
+    testR2s = []
+    for train, test in zip(trains, tests):
+        trainxs, trainys, testxs, testys = run_test()
 
-    tr2 = 1 - sum((trainxs - trainys)**2) / sum((trainys - numpy.mean(trainys))**2)
+        positions = []
+        values = []
+        testOrTrain = []
+        for xv in sorted(list(set(trainxs))):
+            preds = trainys[trainxs == xv]
+            values.append(preds)
+            positions.append(xv)
+            testOrTrain.append(0)
 
-    print 'Train R^2 ', tr2
+        tr2 = 1 - sum((trainxs - trainys)**2) / sum((trainys - numpy.mean(trainys))**2)
+        print 'b: ', b
+        sys.stdout.flush()
 
-    for xv in sorted(list(set(testxs))):
-        preds = testys[testxs == xv]
-        values.append(preds)
-        positions.append(xv)
-        testOrTrain.append(1)
+        print 'Train R^2 ', tr2
+        print 'Train rms error per sample: ', numpy.sqrt(sum((trainxs - trainys)**2 / len(trainxs)))
+        trainR2s.append(tr2)
 
-    ttr2 = 1 - sum((testxs - testys)**2) / sum((testys - numpy.mean(testys))**2)
+        for xv in sorted(list(set(testxs))):
+            preds = testys[testxs == xv]
+            values.append(preds)
+            positions.append(xv)
+            testOrTrain.append(1)
 
-    print 'Test R^2 ', ttr2
+        ttr2 = 1 - sum((testxs - testys)**2) / sum((testys - numpy.mean(testys))**2)
 
-    positions, values, testOrTrain = zip(*sorted(zip(positions, values, testOrTrain), key = lambda x : x[0]))
+        print 'Test R^2 ', ttr2
+        print 'Test rms error per sample: ', numpy.sqrt(sum((testxs - testys)**2 / len(testxs)))
+        testR2s.append(ttr2)
+        #continue
+        #1/0
+        positions, values, testOrTrain = zip(*sorted(zip(positions, values, testOrTrain), key = lambda x : x[0]))
 
-    bp = plt.boxplot(values, positions = positions)#, labels = ['train'] * len(positions))
-    plt.gca().set_ylim((-3.0, 13.0))
-    plt.gca().set_xlim((-1.0, 10.0))
-    # Boxplot styles stolen from http://matplotlib.org/examples/pylab_examples/boxplot_demo2.html
-    boxColors = ['darkkhaki', 'royalblue']
-    for i in range(len(positions)):
-        box = bp['boxes'][i]
+        bp = plt.boxplot(values, positions = positions)#, labels = ['train'] * len(positions))
+        plt.gca().set_ylim((-3.0, 13.0))
+        plt.gca().set_xlim((-1.0, 10.0))
+        # Boxplot styles stolen from http://matplotlib.org/examples/pylab_examples/boxplot_demo2.html
+        boxColors = ['darkkhaki', 'royalblue']
+        for i in range(len(positions)):
+            box = bp['boxes'][i]
 
-        boxX = []
-        boxY = []
-        for j in range(5):
-            boxX.append(box.get_xdata()[j])
-            boxY.append(box.get_ydata()[j])
-        boxCoords = list(zip(boxX, boxY))
-        # Alternate between Dark Khaki and Royal Blue
-        k = testOrTrain[i]
-        boxPolygon = matplotlib.patches.Polygon(boxCoords, facecolor = boxColors[k])
-        plt.gca().add_patch(boxPolygon)
+            boxX = []
+            boxY = []
+            for j in range(5):
+                boxX.append(box.get_xdata()[j])
+                boxY.append(box.get_ydata()[j])
+            boxCoords = list(zip(boxX, boxY))
+            # Alternate between Dark Khaki and Royal Blue
+            k = testOrTrain[i]
+            boxPolygon = matplotlib.patches.Polygon(boxCoords, facecolor = boxColors[k])
+            plt.gca().add_patch(boxPolygon)
 
-    # Finally, add a basic legend
-    plt.figtext(0.135, 0.805, 'Training data', backgroundcolor = boxColors[0], color = 'black', weight='roman')
-    plt.figtext(0.135, 0.855, 'Testing data', backgroundcolor = boxColors[1], color='white', weight='roman')
-    plt.figtext(0.135, 0.755, 'Exact ref.', backgroundcolor = 'red', color='white', weight='roman')
+        # Finally, add a basic legend
+        plt.figtext(0.135, 0.805, 'Training data', backgroundcolor = boxColors[0], color = 'black', weight='roman')
+        plt.figtext(0.135, 0.855, 'Testing data', backgroundcolor = boxColors[1], color='white', weight='roman')
+        plt.figtext(0.135, 0.755, 'Exact ref.', backgroundcolor = 'red', color='white', weight='roman')
 
-    plt.xlabel('Truth')
-    plt.ylabel('Prediction')
+        plt.xlabel('Truth')
+        plt.ylabel('Prediction')
 
-    plt.plot([0.0, 9.0], [0.0, 9.0], 'ro-')
+        plt.plot([0.0, 9.0], [0.0, 9.0], 'ro-')
 
-    plt.show()
+        plt.show()
+
+    trainR2s2.append(trainR2s)
+
+    testR2s2.append(testR2s)
+#%%
+hogTestR2s2 = numpy.array(testR2s2)
+hogTrainR2s2 = numpy.array(trainR2s2)
+
+#%%
+lbpTestR2s2 = numpy.array(testR2s2)
+lbpTrainR2s2 = numpy.array(trainR2s2)
+
+#%%
+nnTestR2s2 = numpy.array(testR2s2)
+nnTrainR2s2 = numpy.array(trainR2s2)
+
+#%%
+plt.plot(numpy.linspace(7, 96, 10), hogTestR2s2[:, 3:6], '--')
+plt.plot(numpy.linspace(7, 96, 10), [0.0] * 10, 'k')
+plt.plot(numpy.linspace(7, 96, 10), [1.0] * 10, 'k')
+plt.title('HOG feature descriptor (nrafting2a), train noise (0, 1, 4), test noise 0.87')
+plt.ylabel('R^2')
+plt.xlabel('Diameter of feature descriptor')
+plt.legend(['Two train points', 'Three train points', 'Five train points', 'reference levels (0.0 - 1.0)'], loc = 'upper left')
+plt.ylim(-2, 1.5)
+plt.show()
+plt.plot(numpy.linspace(7, 96, 10), lbpTestR2s2[:, 3:6], '--')
+plt.plot(numpy.linspace(7, 96, 10), [0.0] * 10, 'k')
+plt.plot(numpy.linspace(7, 96, 10), [1.0] * 10, 'k')
+plt.title('LBP feature descriptor (nrafting2a), train noise (0, 1, 4), test noise 0.87')
+plt.ylabel('R^2')
+plt.xlabel('Diameter of feature descriptor')
+plt.legend(['Two train points', 'Three train points', 'Five train points', 'reference levels (0.0 - 1.0)'], loc = 'upper left')
+plt.ylim(-2, 1.5)
+plt.show()
+plt.plot(numpy.linspace(7, 96, 10), nnTestR2s2[:, 3:6], '--')
+plt.plot(numpy.linspace(7, 96, 10), [0.0] * 10, 'k')
+plt.plot(numpy.linspace(7, 96, 10), [1.0] * 10, 'k')
+plt.title('NN feature descriptor (nrafting2a), train noise (0, 1, 4), test noise 0.87')
+plt.ylabel('R^2')
+plt.xlabel('Diameter of feature descriptor')
+plt.legend(['Two train points', 'Three train points', 'Five train points', 'reference levels (0.0 - 1.0)'], loc = 'lower right')
+plt.ylim(-2, 1.5)
+plt.show()
 #%%
     plt.plot(trainxs, trainys, 'rx')
     plt.plot(testxs, testys, 'bx')
