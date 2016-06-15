@@ -17,6 +17,8 @@ import sklearn.svm
 import matplotlib.pyplot as plt
 import skimage.filters
 import sys
+import skimage.measure
+import mahotas
 
 os.chdir('/home/bbales2/microstructure_python')
 
@@ -37,7 +39,69 @@ fs = hogs.reshape((-1, hogs.shape[-1]))
 for i in range(fs.shape[1]):
     plt.hist(fs[:, i])
     plt.show()
+#%%
+def moment_feats(im):
+    thresh = skimage.filters.threshold_otsu(im)
 
+    #plt.imshow(im > thresh)
+    #plt.show()
+
+    labeled, seeds = mahotas.label(im > thresh)
+    labeled = mahotas.labeled.remove_bordering(labeled)
+
+    features = []
+    for seed in range(seeds):
+        precipitates = (labeled == seed).astype('int')
+
+        m00 = mahotas.moments(precipitates, 0, 0)
+        m01 = mahotas.moments(precipitates, 0, 1)
+        m10 = mahotas.moments(precipitates, 1, 0)
+        m11 = mahotas.moments(precipitates, 1, 1)
+        m02 = mahotas.moments(precipitates, 0, 2)
+        m20 = mahotas.moments(precipitates, 2, 0)
+        #m12 = mahotas.moments(precipitates, 1, 2)
+        #m21 = mahotas.moments(precipitates, 2, 1)
+        #m22 = mahotas.moments(precipitates, 2, 2)
+
+        #plt.imshow(precipitates)
+        #plt.show()
+
+        xm = m10 / m00
+        ym = m01 / m00
+
+        #if m00 < 1e-5:
+        #    continue
+
+        #u00 = m00
+        u00 = 1.0
+        u11 = m11 / m00 - xm * ym
+        u20 = m20 / m00 - xm ** 2
+        u02 = m02 / m00 - ym ** 2
+
+        w1 = u00**2 / (2.0 * numpy.pi * (u20 + u02))
+        w2 = u00**4 / (16.0 * numpy.pi * numpy.pi * (u20 * u02 - u11**2))
+
+        if w1 < 0.0 or w1 > 1.0 or w2 < 0.0 or w2 > 1.0 or numpy.isnan(w1) or numpy.isnan(w2):
+            continue
+            print m00, m01, m10, m11, m02, m20
+            print xm
+            print ym
+            print u00, u11, u20, u02
+            print w1, w2
+            1/0
+
+        features.append([w1, w2, m00, u20, u02])
+
+    features = numpy.array(features)
+
+    return features
+
+out = moment_feats(im)
+
+plt.plot(out[:, 2], out[:, 3], '*')
+plt.show()
+#    1/0
+#skimage.measure.moments(im > thresh, order=3)
 #%%
 im2 = im - numpy.mean(im.flatten())
 im2 /= numpy.std(im2.flatten())
@@ -113,20 +177,20 @@ def nn_feats(im):
     hist = sess.run(target, feed_dict = { tens : im2 })[0]
     hist = microstructure.features.hists2boxes(hist, (b + 15) / 16, padding_mode = 'reflect')
 
-    return hist
+    return hist.reshape((-1, hist.shape[-1]))
 
 def lbp_feats(im):
     ff = 7
     features = skimage.feature.local_binary_pattern(im, ff, 3.0)
     hist = microstructure.features.labels2boxes(features, int(2**ff), size = b + 1, stride = b, padding_mode = 'reflect')
 
-    return hist
+    return hist.reshape((-1, hist.shape[-1]))
 
 def hog_feats(im):
     hog = microstructure.features.hog2(im, bins = 20, stride = b, sigma = 1.0)
     hist = microstructure.features.hog2boxes(hog, b, padding_mode = 'reflect')
 
-    return hist
+    return hist.reshape((-1, hist.shape[-1]))
 
 def run_test():
     trainFilenames = []
@@ -164,11 +228,16 @@ def run_test():
 
                 trainx = get_features(im2)
 
-                Xs.append(trainx)
+                #Xs.append(trainx)
+                Xs.extend(trainx)
 
-                trainy = numpy.ones((trainx.shape[0], trainx.shape[1])) * y
+                trainy = numpy.ones((trainx.shape[0])) * y
+                #trainy = numpy.ones((trainx.shape[0], trainx.shape[1])) * y
 
-                Ys.append(trainy)
+                #print trainx.shape
+                #print trainy.shape
+                #Ys.append(trainy)
+                Ys.extend(trainy)
 
         Xs = numpy.array(Xs)
         Ys = numpy.array(Ys)
@@ -187,10 +256,23 @@ def run_test():
     trainingy = trainingy[idxs]
 
     svm = sklearn.linear_model.Ridge(1e-5)#LinearRegression#
+    #print trainingx.shape, trainingy.shape, trainxs.shape, trainys.shape
     svm.fit(trainingx[:10000], trainingy[:10000])
 
     train_predicts = []
     train_truths = []
+
+    train_predicts = svm.predict(trainingx)
+    train_truths = trainingy.flatten()
+
+    testingx = testxs.reshape((-1, testxs.shape[-1]))
+    testingy = testys.reshape((-1))
+
+    test_predicts = svm.predict(testingx)
+    test_truths = testingy.flatten()
+
+    return numpy.array(train_truths), numpy.array(train_predicts), numpy.array(test_truths), numpy.array(test_predicts)
+
     #train_errors = []
     for trainx, trainy, trainim in zip(trainxs, trainys, trainims):
         trainingx = trainx.reshape((-1, trainx.shape[-1]))
@@ -232,14 +314,14 @@ def run_test():
 #%%
 sigma0 = 0.0
 sigma1 = 0.0
-noise0 = [0.0, 1.0, 4]
-noise1 = [0.87, 0.87, 1]
+noise0 = [0.0, 0.0, 1]
+noise1 = [0.0, 0.0, 1]
 
-get_features = hog_feats
+get_features = moment_feats
 
 trainR2s2 = []
 testR2s2 = []
-for b in numpy.linspace(7, 96, 10):
+for b in numpy.linspace(64, 96, 10):
     b = int(numpy.round(b))
 
     trains = [[0, 9], [0, 4, 9], [0, 3, 5, 7, 9], [4, 5], [4, 5, 6], [3, 4, 5, 6, 7]]
