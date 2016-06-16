@@ -26,6 +26,11 @@ import microstructure.features
 
 os.chdir('/home/bbales2/lukestuff')
 
+sys.path.append('/home/bbales2/caffe-tensorflow')
+
+import googlenet
+
+import tensorflow as tf
 #%%
 im = skimage.io.imread('/home/bbales2/rafting/nrafting2a/images_{0}/signal{1}.png'.format(1, 0), as_grey = True)
 im2 = skimage.io.imread('/home/bbales2/rafting/nrafting2a/images_{0}/signal{1}.png'.format(1, 5), as_grey = True)
@@ -108,6 +113,7 @@ plt.show()
 #    1/0
 #skimage.measure.moments(im > thresh, order=3)
 #%%
+#%%
 im2 = im - numpy.mean(im.flatten())
 im2 /= numpy.std(im2.flatten())
 
@@ -115,12 +121,6 @@ im2 += numpy.random.randn(im.shape[0], im.shape[1]) * 0.5
 plt.imshow(im2, cmap = plt.cm.gray, interpolation = 'NONE')
 plt.gcf().set_size_inches((10, 8))
 plt.show()
-#%%
-sys.path.append('/home/bbales2/caffe-tensorflow')
-
-import googlenet
-
-import tensorflow as tf
 #%%
 im = skimage.io.imread('/home/bbales2/rafting/nrafting2a/images_{0}/signal{1}.png'.format(1, 0), as_grey = True)
 
@@ -150,6 +150,86 @@ b = 9
 features = skimage.feature.local_binary_pattern(im, 7, 3.0)
 hist = microstructure.features.labels2boxes(features, int(2**7), size = b + 1, stride = b, padding_mode = 'reflect')
 #%%
+#%%
+features = LBP()
+
+features = Moments()
+features.fit([im])
+
+out = features.get_features([im, im])
+#%%
+class Moments(object):
+    def __init__(self):
+        return
+
+    def fit(self, ims):
+        features = []
+
+        for im in ims:
+            features.append(self._internal_features(im))
+
+        features = numpy.concatenate(features)
+
+        self.bin_edges = []
+        for i in range(features.shape[1]):
+            _, bin_edges = numpy.histogram(features[:, i], 20)
+
+            self.bin_edges.append(bin_edges)
+
+        return self.bin_edges
+
+    def get_features(self, ims):
+        Xs = []
+
+        for im in ims:
+            xs = []
+
+            features = self._internal_features(im)
+
+            for i in range(features.shape[1]):
+                xs.extend(numpy.histogram(features[:, i], bins = self.bin_edges[i])[0])
+
+            Xs.append([xs])
+
+        return numpy.array(Xs)
+
+    def _internal_features(self, im):
+        sys.stdout.flush()
+        thresh = skimage.filters.threshold_otsu(im)
+
+        labeled, seeds = mahotas.label(im > thresh)
+        labeled = mahotas.labeled.remove_bordering(labeled)
+
+        features = []
+        for seed in range(1, seeds):
+            precipitates = (labeled == seed).astype('int')
+
+            m00 = mahotas.moments(precipitates, 0, 0)
+            m01 = mahotas.moments(precipitates, 0, 1)
+            m10 = mahotas.moments(precipitates, 1, 0)
+            m11 = mahotas.moments(precipitates, 1, 1)
+            m02 = mahotas.moments(precipitates, 0, 2)
+            m20 = mahotas.moments(precipitates, 2, 0)
+
+            xm = m10 / m00
+            ym = m01 / m00
+
+            u00 = 1.0
+            u11 = m11 / m00 - xm * ym
+            u20 = m20 / m00 - xm ** 2
+            u02 = m02 / m00 - ym ** 2
+
+            w1 = u00**2 / (2.0 * numpy.pi * (u20 + u02))
+            w2 = u00**4 / (16.0 * numpy.pi * numpy.pi * (u20 * u02 - u11**2))
+
+            if numpy.isnan(w1) or numpy.isnan(w2) or numpy.isinf(w1) or numpy.isinf(w2):
+                continue
+
+            features.append([numpy.sqrt(m00), w1, w2, u20, u02])#
+
+        features = numpy.array(features)
+
+        return features
 
 class NN(object):
     def __init__(self):
@@ -166,7 +246,10 @@ class NN(object):
 
         self.target = [self.net.layers[name] for name in self.net.layers if name == 'inception_4a_1x1'][0]
 
-    def compute(self, ims):
+    def fit(self, ims):
+        return
+
+    def get_features(self, ims):
         hists = []
         for im in ims:
             im2 = numpy.array((im, im, im)).astype('float')
@@ -192,7 +275,10 @@ class NN(object):
         return hists
 
 class LBP(object):
-    def compute(self, ims):
+    def fit(self, ims):
+        return
+
+    def get_features(self, ims):
         ff = 7
         hists = []
 
@@ -205,7 +291,10 @@ class LBP(object):
         return hists
 
 class HOG(object):
-    def compute(self, ims):
+    def fit(self, ims):
+        return
+
+    def get_features(self, ims):
 
         hists = []
         for im in ims:
@@ -222,16 +311,19 @@ def run_test():
 
     dups = 8
     for y in train:
-        for r in range(dups):##rafting2a1h5_rotatedrafting2a1h5
-            trainFilenames.append(('/home/bbales2/rafting/nrafting2a/images_{0}/signal{1}.png'.format(y, r * 4), float(y)))
+        for r in range(dups):##rafting2a1h5_rotated#nrafting2a
+            trainFilenames.append(('/home/bbales2/rafting/rafting2a1h5/images_{0}/signal{1}.png'.format(y, r * 4), float(y)))
 
     for y in test:
-        for r in range(dups):#nrafting2anrafting2arafting2a1h5
-            testFilenames.append(('/home/bbales2/rafting/nrafting2a/images_{0}/signal{1}.png'.format(y, 128 + r * 4), float(y)))
+        for r in range(dups):#nrafting2anrafting2anrafting2a
+            testFilenames.append(('/home/bbales2/rafting/rafting2a1h5/images_{0}/signal{1}.png'.format(y, 128 + r * 4), float(y)))
 
-    def extract_features(filenames, sigma, noise):
+    features = Features()
+
+    def extract_features(filenames, sigma, noise, fit = False):
         Xs = []
         Ys = []
+        ys = []
 
         ims = []
 
@@ -249,27 +341,38 @@ def run_test():
                     im2 = skimage.filters.gaussian(im2, sigma)
 
                 ims.append(im2)
+                ys.append(y)
 
-                trainx = get_features(im2)
+        if fit:
+            features.fit(ims)
 
-                #Xs.append(trainx)
-                Xs.extend(trainx)
+        fs = features.get_features(ims)
 
-                trainy = numpy.ones((trainx.shape[0])) * y
-                #trainy = numpy.ones((trainx.shape[0], trainx.shape[1])) * y
+        print len(fs), len(ims)
+        print fs[0].shape
 
-                #print trainx.shape
-                #print trainy.shape
-                #Ys.append(trainy)
-                Ys.extend(trainy)
+        for trainx, y in zip(fs, ys):
+            #Xs.append(trainx)
+            Xs.extend(trainx)
+
+            trainy = numpy.ones((trainx.shape[0])) * y
+            #trainy = numpy.ones((trainx.shape[0], trainx.shape[1])) * y
+
+            #print trainx.shape
+            #print trainy.shape
+            #Ys.append(trainy)
+            Ys.extend(trainy)
 
         Xs = numpy.array(Xs)
         Ys = numpy.array(Ys)
 
         return Xs, Ys, numpy.array(ims)
 
-    trainxs, trainys, trainims = extract_features(trainFilenames, sigma0, noise0)
+    trainxs, trainys, trainims = extract_features(trainFilenames, sigma0, noise0, True)
     testxs, testys, testims = extract_features(testFilenames, sigma1, noise1)
+
+    print trainxs.shape, trainys.shape
+    print testxs.shape, testys.shape
 
     trainingx = trainxs.reshape((-1, trainxs.shape[-1]))
     trainingy = trainys.reshape((-1))
@@ -341,11 +444,11 @@ sigma1 = 0.0
 noise0 = [0.0, 0.0, 1]
 noise1 = [0.0, 0.0, 1]
 
-get_features = moment_feats
+Features = Moments
 
 trainR2s2 = []
 testR2s2 = []
-for b in numpy.linspace(64, 96, 10):
+for b in numpy.linspace(7, 96, 10):
     b = int(numpy.round(b))
 
     trains = [[0, 9], [0, 4, 9], [0, 3, 5, 7, 9], [4, 5], [4, 5, 6], [3, 4, 5, 6, 7]]
