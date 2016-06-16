@@ -28,6 +28,7 @@ os.chdir('/home/bbales2/lukestuff')
 
 #%%
 im = skimage.io.imread('/home/bbales2/rafting/nrafting2a/images_{0}/signal{1}.png'.format(1, 0), as_grey = True)
+im2 = skimage.io.imread('/home/bbales2/rafting/nrafting2a/images_{0}/signal{1}.png'.format(1, 5), as_grey = True)
 hog = microstructure.features.HOG(16, padding = False)
 hogs = hog.run(im)
 
@@ -50,7 +51,7 @@ def moment_feats(im):
     labeled = mahotas.labeled.remove_bordering(labeled)
 
     features = []
-    for seed in range(seeds):
+    for seed in range(1, seeds):
         precipitates = (labeled == seed).astype('int')
 
         m00 = mahotas.moments(precipitates, 0, 0)
@@ -90,16 +91,20 @@ def moment_feats(im):
             print w1, w2
             1/0
 
-        features.append([w1, w2, m00, u20, u02])
+        features.append([numpy.sqrt(m00)])#w1, w2, , u20, u02
 
     features = numpy.array(features)
 
     return features
 
 out = moment_feats(im)
-
-plt.plot(out[:, 2], out[:, 3], '*')
+out2 = moment_feats(im2)
+plt.hist(out, 100)
 plt.show()
+plt.hist(out2, 100)
+plt.show()
+#plt.plot(out[:, 2], out[:, 3], '*')
+#plt.show()
 #    1/0
 #skimage.measure.moments(im > thresh, order=3)
 #%%
