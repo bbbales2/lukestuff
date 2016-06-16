@@ -121,19 +121,7 @@ sys.path.append('/home/bbales2/caffe-tensorflow')
 import googlenet
 
 import tensorflow as tf
-sess = tf.InteractiveSession()
-
-tens = tf.placeholder(tf.float32, shape = [1, 256, 256, 3])
-
-# Create an instance, passing in the input data
-with tf.variable_scope("image_filters", reuse = False):
-    net = googlenet.GoogleNet({'data' : tens})
-
-with tf.variable_scope("image_filters", reuse = True):
-    net.load('/home/bbales2/caffe-tensorflow/googlenet.tf', sess, ignore_missing = True)
 #%%
-target = [net.layers[name] for name in net.layers if name == 'inception_4a_1x1'][0]
-
 im = skimage.io.imread('/home/bbales2/rafting/nrafting2a/images_{0}/signal{1}.png'.format(1, 0), as_grey = True)
 
 im2 = numpy.array((im, im, im)).astype('float')
@@ -163,39 +151,70 @@ features = skimage.feature.local_binary_pattern(im, 7, 3.0)
 hist = microstructure.features.labels2boxes(features, int(2**7), size = b + 1, stride = b, padding_mode = 'reflect')
 #%%
 
-def nn_feats(im):
-    im2 = numpy.array((im, im, im)).astype('float')
+class NN(object):
+    def __init__(self):
+        self.sess = tf.Session()
 
-    im2 -= im2.min()
-    im2 /= im2.max() / 255.0
+        self.tens = tf.placeholder(tf.float32, shape = [1, 256, 256, 3])
 
-    im2 = numpy.rollaxis(im2, 1, 0)
-    im2 = numpy.rollaxis(im2, 2, 1)
+        # Create an instance, passing in the input data
+        with tf.variable_scope("image_filters", reuse = False):
+            self.net = googlenet.GoogleNet({'data' : self.tens})
 
-    mean = numpy.array([104., 117., 124.])
+        with tf.variable_scope("image_filters", reuse = True):
+            self.net.load('/home/bbales2/caffe-tensorflow/googlenet.tf', self.sess, ignore_missing = True)
 
-    for c in range(3):
-        im2[:, :, c] -= mean[c]
+        self.target = [self.net.layers[name] for name in self.net.layers if name == 'inception_4a_1x1'][0]
 
-    im2 = im2.reshape((1, im2.shape[0], im2.shape[1], im2.shape[2]))
+    def compute(self, ims):
+        hists = []
+        for im in ims:
+            im2 = numpy.array((im, im, im)).astype('float')
 
-    hist = sess.run(target, feed_dict = { tens : im2 })[0]
-    hist = microstructure.features.hists2boxes(hist, (b + 15) / 16, padding_mode = 'reflect')
+            im2 -= im2.min()
+            im2 /= im2.max() / 255.0
 
-    return hist.reshape((-1, hist.shape[-1]))
+            im2 = numpy.rollaxis(im2, 1, 0)
+            im2 = numpy.rollaxis(im2, 2, 1)
 
-def lbp_feats(im):
-    ff = 7
-    features = skimage.feature.local_binary_pattern(im, ff, 3.0)
-    hist = microstructure.features.labels2boxes(features, int(2**ff), size = b + 1, stride = b, padding_mode = 'reflect')
+            mean = numpy.array([104., 117., 124.])
 
-    return hist.reshape((-1, hist.shape[-1]))
+            for c in range(3):
+                im2[:, :, c] -= mean[c]
 
-def hog_feats(im):
-    hog = microstructure.features.hog2(im, bins = 20, stride = b, sigma = 1.0)
-    hist = microstructure.features.hog2boxes(hog, b, padding_mode = 'reflect')
+            im2 = im2.reshape((1, im2.shape[0], im2.shape[1], im2.shape[2]))
 
-    return hist.reshape((-1, hist.shape[-1]))
+            hist = self.sess.run(self.target, feed_dict = { self.tens : im2 })[0]
+            hist = microstructure.features.hists2boxes(hist, (b + 15) / 16, padding_mode = 'reflect')
+
+            hists.append(hist.reshape((-1, hist.shape[-1])))
+
+        return hists
+
+class LBP(object):
+    def compute(self, ims):
+        ff = 7
+        hists = []
+
+        for im in ims:
+            features = skimage.feature.local_binary_pattern(im, ff, 3.0)
+            hist = microstructure.features.labels2boxes(features, int(2**ff), size = b + 1, stride = b, padding_mode = 'reflect')
+
+            hists.append(hist.reshape((-1, hist.shape[-1])))
+
+        return hists
+
+class HOG(object):
+    def compute(self, ims):
+
+        hists = []
+        for im in ims:
+            hog = microstructure.features.hog2(im, bins = 20, stride = b, sigma = 1.0)
+            hist = microstructure.features.hog2boxes(hog, b, padding_mode = 'reflect')
+
+            hists.append(hist.reshape((-1, hist.shape[-1])))
+
+        return hists
 
 def run_test():
     trainFilenames = []
