@@ -31,129 +31,15 @@ sys.path.append('/home/bbales2/caffe-tensorflow')
 import googlenet
 
 import tensorflow as tf
-#%%
+
 im = skimage.io.imread('/home/bbales2/rafting/nrafting2a/images_{0}/signal{1}.png'.format(1, 0), as_grey = True)
 im2 = skimage.io.imread('/home/bbales2/rafting/nrafting2a/images_{0}/signal{1}.png'.format(1, 5), as_grey = True)
-hog = microstructure.features.HOG(16, padding = False)
-hogs = hog.run(im)
-
-plt.imshow(im)
-plt.show()
-
-fs = hogs.reshape((-1, hogs.shape[-1]))
-
-for i in range(fs.shape[1]):
-    plt.hist(fs[:, i])
-    plt.show()
 #%%
-def moment_feats(im):
-    thresh = skimage.filters.threshold_otsu(im)
+#features = LBP()
 
-    #plt.imshow(im > thresh)
-    #plt.show()
-
-    labeled, seeds = mahotas.label(im > thresh)
-    labeled = mahotas.labeled.remove_bordering(labeled)
-
-    features = []
-    for seed in range(1, seeds):
-        precipitates = (labeled == seed).astype('int')
-
-        m00 = mahotas.moments(precipitates, 0, 0)
-        m01 = mahotas.moments(precipitates, 0, 1)
-        m10 = mahotas.moments(precipitates, 1, 0)
-        m11 = mahotas.moments(precipitates, 1, 1)
-        m02 = mahotas.moments(precipitates, 0, 2)
-        m20 = mahotas.moments(precipitates, 2, 0)
-        #m12 = mahotas.moments(precipitates, 1, 2)
-        #m21 = mahotas.moments(precipitates, 2, 1)
-        #m22 = mahotas.moments(precipitates, 2, 2)
-
-        #plt.imshow(precipitates)
-        #plt.show()
-
-        xm = m10 / m00
-        ym = m01 / m00
-
-        #if m00 < 1e-5:
-        #    continue
-
-        #u00 = m00
-        u00 = 1.0
-        u11 = m11 / m00 - xm * ym
-        u20 = m20 / m00 - xm ** 2
-        u02 = m02 / m00 - ym ** 2
-
-        w1 = u00**2 / (2.0 * numpy.pi * (u20 + u02))
-        w2 = u00**4 / (16.0 * numpy.pi * numpy.pi * (u20 * u02 - u11**2))
-
-        if w1 < 0.0 or w1 > 1.0 or w2 < 0.0 or w2 > 1.0 or numpy.isnan(w1) or numpy.isnan(w2):
-            continue
-            print m00, m01, m10, m11, m02, m20
-            print xm
-            print ym
-            print u00, u11, u20, u02
-            print w1, w2
-            1/0
-
-        features.append([numpy.sqrt(m00)])#w1, w2, , u20, u02
-
-    features = numpy.array(features)
-
-    return features
-
-out = moment_feats(im)
-out2 = moment_feats(im2)
-plt.hist(out, 100)
-plt.show()
-plt.hist(out2, 100)
-plt.show()
-#plt.plot(out[:, 2], out[:, 3], '*')
-#plt.show()
-#    1/0
-#skimage.measure.moments(im > thresh, order=3)
-#%%
-#%%
-im2 = im - numpy.mean(im.flatten())
-im2 /= numpy.std(im2.flatten())
-
-im2 += numpy.random.randn(im.shape[0], im.shape[1]) * 0.5
-plt.imshow(im2, cmap = plt.cm.gray, interpolation = 'NONE')
-plt.gcf().set_size_inches((10, 8))
-plt.show()
-#%%
-im = skimage.io.imread('/home/bbales2/rafting/nrafting2a/images_{0}/signal{1}.png'.format(1, 0), as_grey = True)
-
-im2 = numpy.array((im, im, im)).astype('float')
-
-im2 -= im2.min()
-im2 /= im2.max() / 255.0
-
-im2 = numpy.rollaxis(im2, 1, 0)
-im2 = numpy.rollaxis(im2, 2, 1)
-
-mean = numpy.array([104., 117., 124.])
-
-for c in range(3):
-    im2[:, :, c] -= mean[c]
-
-im2 = im2.reshape((1, im2.shape[0], im2.shape[1], im2.shape[2]))
-
-hist = sess.run(target, feed_dict = { tens : im2 })[0]
-
-print hist.shape
-#%%
-plt.plot(fs[:, 7], fs[:, 8], '*')
-plt.show()
-#%%
-b = 9
-features = skimage.feature.local_binary_pattern(im, 7, 3.0)
-hist = microstructure.features.labels2boxes(features, int(2**7), size = b + 1, stride = b, padding_mode = 'reflect')
-#%%
-#%%
-features = LBP()
-
-features = Moments()
+#features = HOG()
+features = NN()
+#features = Moments()
 features.fit([im])
 
 out = features.get_features([im, im])
@@ -189,7 +75,7 @@ class Moments(object):
             for i in range(features.shape[1]):
                 xs.extend(numpy.histogram(features[:, i], bins = self.bin_edges[i])[0])
 
-            Xs.append([xs])
+            Xs.append(xs)
 
         return numpy.array(Xs)
 
@@ -233,9 +119,12 @@ class Moments(object):
 
 class NN(object):
     def __init__(self):
+        return
+
+    def fit(self, ims):
         self.sess = tf.Session()
 
-        self.tens = tf.placeholder(tf.float32, shape = [1, 256, 256, 3])
+        self.tens = tf.placeholder(tf.float32, shape = [1, ims[0].shape[0], ims[0].shape[1], 3])
 
         # Create an instance, passing in the input data
         with tf.variable_scope("image_filters", reuse = False):
@@ -245,9 +134,6 @@ class NN(object):
             self.net.load('/home/bbales2/caffe-tensorflow/googlenet.tf', self.sess, ignore_missing = True)
 
         self.target = [self.net.layers[name] for name in self.net.layers if name == 'inception_4a_1x1'][0]
-
-    def fit(self, ims):
-        return
 
     def get_features(self, ims):
         hists = []
@@ -268,9 +154,8 @@ class NN(object):
             im2 = im2.reshape((1, im2.shape[0], im2.shape[1], im2.shape[2]))
 
             hist = self.sess.run(self.target, feed_dict = { self.tens : im2 })[0]
-            hist = microstructure.features.hists2boxes(hist, (b + 15) / 16, padding_mode = 'reflect')
 
-            hists.append(hist.reshape((-1, hist.shape[-1])))
+            hists.append(hist.reshape((-1, hist.shape[-1])).sum(axis = 0))
 
         return hists
 
@@ -283,10 +168,14 @@ class LBP(object):
         hists = []
 
         for im in ims:
-            features = skimage.feature.local_binary_pattern(im, ff, 3.0)
-            hist = microstructure.features.labels2boxes(features, int(2**ff), size = b + 1, stride = b, padding_mode = 'reflect')
+            features = skimage.feature.local_binary_pattern(im, ff, 3.0).astype('uint8')
 
-            hists.append(hist.reshape((-1, hist.shape[-1])))
+            hist = numpy.zeros(int(2**ff))
+
+            for v, idx in zip(*skimage.exposure.histogram(features.flatten())):
+                hist[idx] = v
+
+            hists.append(hist)
 
         return hists
 
@@ -299,9 +188,7 @@ class HOG(object):
         hists = []
         for im in ims:
             hog = microstructure.features.hog2(im, bins = 20, stride = b, sigma = 1.0)
-            hist = microstructure.features.hog2boxes(hog, b, padding_mode = 'reflect')
-
-            hists.append(hist.reshape((-1, hist.shape[-1])))
+            hists.append(hog.reshape((-1, hog.shape[-1])).sum(axis = 0))
 
         return hists
 
@@ -329,8 +216,6 @@ def run_test():
 
         for filename, y in filenames:
             im = skimage.io.imread(filename, as_grey = True).astype('double')
-
-        for im in ims_pre:
             #print im.shape
             im -= numpy.mean(im.flatten())
             im /= numpy.std(im.flatten())
@@ -567,71 +452,3 @@ plt.xlabel('Diameter of feature descriptor')
 plt.legend(['Two train points', 'Three train points', 'Five train points', 'reference levels (0.0 - 1.0)'], loc = 'lower right')
 plt.ylim(-2, 1.5)
 plt.show()
-#%%
-    plt.plot(trainxs, trainys, 'rx')
-    plt.plot(testxs, testys, 'bx')
-    plt.title('Interpolation')
-    plt.legend(['train', 'test'])
-    plt.show()
-#%%
-scores = []
-for i in range(0, testingx.shape[1], 1):
-    fs2 = list(reversed(numpy.argsort(numpy.abs(svm.coef_))))
-
-    fs = fs2[:i + 1]
-
-    print i, len(fs)
-
-    lr2 = sklearn.linear_model.LinearRegression()
-    lr2.fit(trainingx[:1000, fs], trainingy[:1000])
-
-    rafting = lr2.predict(testingx[:, fs]).reshape((-1, testys.shape[-1]))
-    plt.imshow(rafting)
-    plt.title(str(i))
-    plt.show()
-
-    scores.append(lr2.score(testingx[:, fs], testingy))
-    #print
-
-plt.plot(scores)
-plt.show()
-#%%
-for i in fs2:
-    print svm.coef_[i], "{0:04b}".format(i)
-
-#%%
-
-for im, (filename, y) in zip(ims, filenames):
-#if True:
-#    im = skimage.io.imread('gtdmix.png', as_grey = True).astype('double')
-#    im -= numpy.mean(im.flatten())
-#    im /= numpy.std(im.flatten())
-
-    filename = 'gtdmix'
-
-    print im.shape
-
-    #im2, test = sklearn.cross_validation.train_test_split(list(im), test_size = 0.0)
-
-    #im2 = numpy.array(im2)
-
-    #print im2.shape
-
-    features = get_features(im)
-
-    rafting = svm.predict(features.reshape((-1, features.shape[-1]))).reshape((features.shape[0], features.shape[1]))
-
-    #plt.imshow(im, interpolation = 'NONE', cmap = plt.cm.gray)
-    #plt.show()
-    plt.imshow(im, interpolation = 'NONE', cmap = plt.cm.gray)
-    plt.imshow(rafting, interpolation = 'NONE', extent = (0, im.shape[1], im.shape[0], 0), alpha = 0.5, vmin = 0.0, vmax = 5.0)
-    plt.title(filename)
-    plt.gcf().set_size_inches((17, 10))
-    plt.colorbar()
-    plt.show()
-    #plt.imshow(rafting, interpolation = 'NONE', vmin = 0.0, vmax = 5.0)
-    #plt.show()
-#%%
-
-f0 = get_features(im)
-f1 = get_features(im2)

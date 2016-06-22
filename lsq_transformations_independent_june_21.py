@@ -34,129 +34,19 @@ import tensorflow as tf
 #%%
 im = skimage.io.imread('/home/bbales2/rafting/nrafting2a/images_{0}/signal{1}.png'.format(1, 0), as_grey = True)
 im2 = skimage.io.imread('/home/bbales2/rafting/nrafting2a/images_{0}/signal{1}.png'.format(1, 5), as_grey = True)
-hog = microstructure.features.HOG(16, padding = False)
-hogs = hog.run(im)
 
-plt.imshow(im)
-plt.show()
 
-fs = hogs.reshape((-1, hogs.shape[-1]))
-
-for i in range(fs.shape[1]):
-    plt.hist(fs[:, i])
-    plt.show()
 #%%
-def moment_feats(im):
-    thresh = skimage.filters.threshold_otsu(im)
 
-    #plt.imshow(im > thresh)
-    #plt.show()
-
-    labeled, seeds = mahotas.label(im > thresh)
-    labeled = mahotas.labeled.remove_bordering(labeled)
-
-    features = []
-    for seed in range(1, seeds):
-        precipitates = (labeled == seed).astype('int')
-
-        m00 = mahotas.moments(precipitates, 0, 0)
-        m01 = mahotas.moments(precipitates, 0, 1)
-        m10 = mahotas.moments(precipitates, 1, 0)
-        m11 = mahotas.moments(precipitates, 1, 1)
-        m02 = mahotas.moments(precipitates, 0, 2)
-        m20 = mahotas.moments(precipitates, 2, 0)
-        #m12 = mahotas.moments(precipitates, 1, 2)
-        #m21 = mahotas.moments(precipitates, 2, 1)
-        #m22 = mahotas.moments(precipitates, 2, 2)
-
-        #plt.imshow(precipitates)
-        #plt.show()
-
-        xm = m10 / m00
-        ym = m01 / m00
-
-        #if m00 < 1e-5:
-        #    continue
-
-        #u00 = m00
-        u00 = 1.0
-        u11 = m11 / m00 - xm * ym
-        u20 = m20 / m00 - xm ** 2
-        u02 = m02 / m00 - ym ** 2
-
-        w1 = u00**2 / (2.0 * numpy.pi * (u20 + u02))
-        w2 = u00**4 / (16.0 * numpy.pi * numpy.pi * (u20 * u02 - u11**2))
-
-        if w1 < 0.0 or w1 > 1.0 or w2 < 0.0 or w2 > 1.0 or numpy.isnan(w1) or numpy.isnan(w2):
-            continue
-            print m00, m01, m10, m11, m02, m20
-            print xm
-            print ym
-            print u00, u11, u20, u02
-            print w1, w2
-            1/0
-
-        features.append([numpy.sqrt(m00)])#w1, w2, , u20, u02
-
-    features = numpy.array(features)
-
-    return features
-
-out = moment_feats(im)
-out2 = moment_feats(im2)
-plt.hist(out, 100)
-plt.show()
-plt.hist(out2, 100)
-plt.show()
-#plt.plot(out[:, 2], out[:, 3], '*')
-#plt.show()
-#    1/0
-#skimage.measure.moments(im > thresh, order=3)
-#%%
-#%%
-im2 = im - numpy.mean(im.flatten())
-im2 /= numpy.std(im2.flatten())
-
-im2 += numpy.random.randn(im.shape[0], im.shape[1]) * 0.5
-plt.imshow(im2, cmap = plt.cm.gray, interpolation = 'NONE')
-plt.gcf().set_size_inches((10, 8))
-plt.show()
-#%%
-im = skimage.io.imread('/home/bbales2/rafting/nrafting2a/images_{0}/signal{1}.png'.format(1, 0), as_grey = True)
-
-im2 = numpy.array((im, im, im)).astype('float')
-
-im2 -= im2.min()
-im2 /= im2.max() / 255.0
-
-im2 = numpy.rollaxis(im2, 1, 0)
-im2 = numpy.rollaxis(im2, 2, 1)
-
-mean = numpy.array([104., 117., 124.])
-
-for c in range(3):
-    im2[:, :, c] -= mean[c]
-
-im2 = im2.reshape((1, im2.shape[0], im2.shape[1], im2.shape[2]))
-
-hist = sess.run(target, feed_dict = { tens : im2 })[0]
-
-print hist.shape
-#%%
-plt.plot(fs[:, 7], fs[:, 8], '*')
-plt.show()
-#%%
-b = 9
-features = skimage.feature.local_binary_pattern(im, 7, 3.0)
-hist = microstructure.features.labels2boxes(features, int(2**7), size = b + 1, stride = b, padding_mode = 'reflect')
-#%%
-#%%
-features = LBP()
-
+b = 64
 features = Moments()
+
+#features = Moments()
 features.fit([im])
 
 out = features.get_features([im, im])
+print out[0].shape
+#%%
 #%%
 class Moments(object):
     def __init__(self):
@@ -166,7 +56,7 @@ class Moments(object):
         features = []
 
         for im in ims:
-            features.append(self._internal_features(im))
+            features.append(self._internal_features(self._process_image(im)))
 
         features = numpy.concatenate(features)
 
@@ -182,19 +72,24 @@ class Moments(object):
         Xs = []
 
         for im in ims:
-            xs = []
+            xs0 = []
+            fs = self._process_image(im)
+            for k in range(im.shape[0] / b):
+                for j in range(im.shape[1] / b):
+                    xs = []
+                    features = self._internal_features(fs, k * b, (k + 1) * b, j * b, (j + 1) * b)
 
-            features = self._internal_features(im)
+                    if len(features) > 0:
+                        for i in range(features.shape[1]):
+                            xs.extend(numpy.histogram(features[:, i], bins = self.bin_edges[i])[0])
 
-            for i in range(features.shape[1]):
-                xs.extend(numpy.histogram(features[:, i], bins = self.bin_edges[i])[0])
+                        xs0.append(xs)
 
-            Xs.append([xs])
+            Xs.append(xs0)
 
         return numpy.array(Xs)
 
-    def _internal_features(self, im):
-        sys.stdout.flush()
+    def _process_image(self, im):
         thresh = skimage.filters.threshold_otsu(im)
 
         labeled, seeds = mahotas.label(im > thresh)
@@ -225,11 +120,29 @@ class Moments(object):
             if numpy.isnan(w1) or numpy.isnan(w2) or numpy.isinf(w1) or numpy.isinf(w2):
                 continue
 
-            features.append([numpy.sqrt(m00), w1, w2, u20, u02])#
-
-        features = numpy.array(features)
+            features.append(((xm, ym), [numpy.sqrt(m00), w1, w2, u20, u02]))#
 
         return features
+
+    def _internal_features(self, features, imin = None, imax = None, jmin = None, jmax = None):
+        if imin == None:
+            imin = 0
+
+        if imax == None:
+            imax = im.shape[0]
+
+        if jmin == None:
+            jmin = 0
+
+        if jmax == None:
+            jmax = im.shape[1]
+
+        fs = []
+        for (x, y), f in features:
+            if x >= imin and x <= imax and y >= jmin and y <= jmax:
+                fs.append(f)
+
+        return numpy.array(fs)
 
 class NN(object):
     def __init__(self):
@@ -330,7 +243,6 @@ def run_test():
         for filename, y in filenames:
             im = skimage.io.imread(filename, as_grey = True).astype('double')
 
-        for im in ims_pre:
             #print im.shape
             im -= numpy.mean(im.flatten())
             im /= numpy.std(im.flatten())
@@ -350,14 +262,19 @@ def run_test():
 
         fs = features.get_features(ims)
 
-        print len(fs), len(ims)
-        print fs[0].shape
+        #print len(fs), len(ims)
+        #print type(fs)
+        #print fs.shape
+        #print fs[0]
+        #for l in fs[0]:
+        #    print len(l)
+        #print fs[0].shape
 
         for trainx, y in zip(fs, ys):
             #Xs.append(trainx)
             Xs.extend(trainx)
 
-            trainy = numpy.ones((trainx.shape[0])) * y
+            trainy = numpy.ones(len(trainx)) * y
             #trainy = numpy.ones((trainx.shape[0], trainx.shape[1])) * y
 
             #print trainx.shape
@@ -446,11 +363,11 @@ sigma1 = 0.0
 noise0 = [0.0, 0.0, 1]
 noise1 = [0.0, 0.0, 1]
 
-Features = Moments
+Features = NN
 
 trainR2s2 = []
 testR2s2 = []
-for b in numpy.linspace(7, 96, 10):
+for b in [16, 32, 48, 64]:#numpy.linspace(7, 96, 10):
     b = int(numpy.round(b))
 
     trains = [[0, 9], [0, 4, 9], [0, 3, 5, 7, 9], [4, 5], [4, 5, 6], [3, 4, 5, 6, 7]]
@@ -567,71 +484,3 @@ plt.xlabel('Diameter of feature descriptor')
 plt.legend(['Two train points', 'Three train points', 'Five train points', 'reference levels (0.0 - 1.0)'], loc = 'lower right')
 plt.ylim(-2, 1.5)
 plt.show()
-#%%
-    plt.plot(trainxs, trainys, 'rx')
-    plt.plot(testxs, testys, 'bx')
-    plt.title('Interpolation')
-    plt.legend(['train', 'test'])
-    plt.show()
-#%%
-scores = []
-for i in range(0, testingx.shape[1], 1):
-    fs2 = list(reversed(numpy.argsort(numpy.abs(svm.coef_))))
-
-    fs = fs2[:i + 1]
-
-    print i, len(fs)
-
-    lr2 = sklearn.linear_model.LinearRegression()
-    lr2.fit(trainingx[:1000, fs], trainingy[:1000])
-
-    rafting = lr2.predict(testingx[:, fs]).reshape((-1, testys.shape[-1]))
-    plt.imshow(rafting)
-    plt.title(str(i))
-    plt.show()
-
-    scores.append(lr2.score(testingx[:, fs], testingy))
-    #print
-
-plt.plot(scores)
-plt.show()
-#%%
-for i in fs2:
-    print svm.coef_[i], "{0:04b}".format(i)
-
-#%%
-
-for im, (filename, y) in zip(ims, filenames):
-#if True:
-#    im = skimage.io.imread('gtdmix.png', as_grey = True).astype('double')
-#    im -= numpy.mean(im.flatten())
-#    im /= numpy.std(im.flatten())
-
-    filename = 'gtdmix'
-
-    print im.shape
-
-    #im2, test = sklearn.cross_validation.train_test_split(list(im), test_size = 0.0)
-
-    #im2 = numpy.array(im2)
-
-    #print im2.shape
-
-    features = get_features(im)
-
-    rafting = svm.predict(features.reshape((-1, features.shape[-1]))).reshape((features.shape[0], features.shape[1]))
-
-    #plt.imshow(im, interpolation = 'NONE', cmap = plt.cm.gray)
-    #plt.show()
-    plt.imshow(im, interpolation = 'NONE', cmap = plt.cm.gray)
-    plt.imshow(rafting, interpolation = 'NONE', extent = (0, im.shape[1], im.shape[0], 0), alpha = 0.5, vmin = 0.0, vmax = 5.0)
-    plt.title(filename)
-    plt.gcf().set_size_inches((17, 10))
-    plt.colorbar()
-    plt.show()
-    #plt.imshow(rafting, interpolation = 'NONE', vmin = 0.0, vmax = 5.0)
-    #plt.show()
-#%%
-
-f0 = get_features(im)
-f1 = get_features(im2)
