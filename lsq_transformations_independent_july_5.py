@@ -32,11 +32,69 @@ import googlenet
 
 import tensorflow as tf
 #%%
+data = {}
+for size in [32, 64, 96, 128, 160, 192, 224, 256]:
+    dsets = {}
+    for dset in ['nrafting2a', 'rafting2a1h5']:
+        trains = {}
+        tests = {}
+
+        dups = 8
+        for y in range(10):
+            print size, dset, y
+
+            samples = []
+            for r in range(dups):##rafting2a1h5_rotated#
+                im = skimage.io.imread('/home/bbales2/rafting/{0}/images_{1}/signal{2}.png'.format(dset, y, r * 4), as_grey = True)
+
+                for i in range(0, im.shape[0], size):
+                    for j in range(0, im.shape[1], size):
+                        sample = im[i : i + size, j : j + size].astype('float')
+
+                        sample -= numpy.mean(sample.flatten())
+                        sample /= numpy.std(sample.flatten())
+
+                        samples.append(sample)
+
+            trains[float(y)] = samples
+
+        for y in range(10):
+            samples = []
+            for r in range(dups):##rafting2a1h5_rotated#
+                im = skimage.io.imread('/home/bbales2/rafting/{0}/images_{1}/signal{2}.png'.format(dset, y, 128 + r * 4), as_grey = True)
+
+                for i in range(0, im.shape[0], size):
+                    for j in range(0, im.shape[1], size):
+                        sample = im[i : i + size, j : j + size].astype('float')
+
+                        sample -= numpy.mean(sample.flatten())
+                        sample /= numpy.std(sample.flatten())
+
+                        samples.append(sample)
+
+            tests[float(y)] = samples
+
+        dsets = {
+            'train' : trains,
+            'test' : tests
+        }
+
+    data[size] = dsets
+#%%
 im = skimage.io.imread('/home/bbales2/rafting/nrafting2a/images_{0}/signal{1}.png'.format(1, 0), as_grey = True)
 im2 = skimage.io.imread('/home/bbales2/rafting/nrafting2a/images_{0}/signal{1}.png'.format(1, 5), as_grey = True)
 
 
 #%%
+data = {}
+for size in [32, 64, 96, 128, 160, 192, 224, 256]:
+    dsets = {}
+    for dset in ['nrafting2a', 'rafting2a1h5']:
+        trains = {}
+        tests = {}
+
+        dups = 8
+        for y in range(10):
 
 b = 64
 features = HOG()
@@ -229,18 +287,6 @@ class HOG(object):
 dset = ''
 
 def run_test():
-    trainFilenames = []
-    testFilenames = []
-
-    dups = 8
-    for y in train:
-        for r in range(dups):##rafting2a1h5_rotated#nrafting2arafting2a1h5
-            trainFilenames.append(('/home/bbales2/rafting/{0}/images_{1}/signal{2}.png'.format(dset, y, r * 4), float(y)))
-
-    for y in test:
-        for r in range(dups):#nrafting2anrafting2anrafting2arafting2a1h5
-            testFilenames.append(('/home/bbales2/rafting/{0}/images_{1}/signal{2}.png'.format(dset, y, 128 + r * 4), float(y)))
-
     features = Features()
 
     def extract_features(filenames, sigma, noise, fit = False):
