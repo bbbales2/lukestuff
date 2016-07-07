@@ -33,21 +33,171 @@ data, features = pickle.load(f)
 f.close()
 
 #%%
+trains = [[0, 9], [0, 4, 9], [0, 3, 5, 7, 9], [4, 5], [4, 5, 6], [3, 4, 5, 6, 7]]
+tests = [[1, 2, 3, 4, 5, 6, 7, 8], [1, 2, 3, 5, 6, 7, 8], [1, 2, 4, 6, 8], [0, 1, 2, 3, 6, 7, 8, 9], [0, 1, 2, 3, 7, 8, 9], [0, 1, 2, 8, 9]]
+
+#R2s = {}
+trainR2s = {}
+testR2s = {}
 for ftype in features:
     fdata = features[ftype]
     for size in fdata:
         dsets = fdata[size]
         for dset in dsets:
-            trains = dsets[dset]['train']
-            tests = dsets[dset]['test']
+            trainsd = dsets[dset]['train']
+            testsd = dsets[dset]['test']
 
-            trains = [[0, 9], [0, 4, 9], [0, 3, 5, 7, 9], [4, 5], [4, 5, 6], [3, 4, 5, 6, 7]]
-            tests = [[1, 2, 3, 4, 5, 6, 7, 8], [1, 2, 3, 5, 6, 7, 8], [1, 2, 4, 6, 8], [0, 1, 2, 3, 6, 7, 8, 9], [0, 1, 2, 3, 7, 8, 9], [0, 1, 2, 8, 9]]
+            #trainR2s[(ftype, size, dset)] = []
+            #testR2s[(ftype, size, dset)] = []
+            for idx, (train, test) in enumerate(zip(trains, tests)):
+                trainXs = []
+                trainYs = []
+                testXs = []
+                testYs = []
+
+                for y in train:
+                    trainXs.extend([v.flatten() for v in trainsd[y]])
+                    trainYs.extend([y] * len(trainsd[y]))
+
+                for y in test:
+                    testXs.extend([v.flatten() for v in testsd[y]])
+                    testYs.extend([y] * len(testsd[y]))
+
+                trainXs = numpy.array(trainXs)
+                trainYs = numpy.array(trainYs)
+                testXs = numpy.array(testXs)
+                testYs = numpy.array(testYs)
+
+                svm = sklearn.linear_model.Ridge(1e-5)
+                svm.fit(trainXs, trainYs)
+
+                trainYsPredict = svm.predict(trainXs)
+                testYsPredict = svm.predict(testXs)
+
+                positions = []
+                values = []
+                testOrTrain = []
+                for xv in sorted(list(set(trainYs))):
+                    preds = trainYsPredict[trainYs == xv]
+                    values.append(preds)
+                    positions.append(xv)
+                    testOrTrain.append(0)
+
+                tr2 = 1 - sum((trainYsPredict - trainYs)**2) / sum((trainYs - numpy.mean(trainYs))**2)
+                sys.stdout.flush()
+
+                print 'Train R^2 ', tr2
+                print 'Train rms error per sample: ', numpy.sqrt(sum((trainYsPredict - trainYs)**2 / len(trainYs)))
+                trainR2s[(ftype, size, dset, idx)] = tr2
+
+                for xv in sorted(list(set(testYs))):
+                    preds = testYsPredict[testYs == xv]
+                    values.append(preds)
+                    positions.append(xv)
+                    testOrTrain.append(1)
+
+                ttr2 = 1 - sum((testYsPredict - testYs)**2) / sum((testYs - numpy.mean(testYs))**2)
+
+                print 'Test R^2 ', ttr2
+                print 'Test rms error per sample: ', numpy.sqrt(sum((testYsPredict - testYs)**2 / len(testYs)))
+
+                positions, values, testOrTrain = zip(*sorted(zip(positions, values, testOrTrain), key = lambda x : x[0]))
+
+                bp = plt.boxplot(values, positions = positions)#, labels = ['train'] * len(positions))
+                plt.gca().set_ylim((-3.0, 13.0))
+                plt.gca().set_xlim((-1.0, 10.0))
+                # Boxplot styles stolen from http://matplotlib.org/examples/pylab_examples/boxplot_demo2.html
+                boxColors = ['darkkhaki', 'royalblue']
+                for i in range(len(positions)):
+                    box = bp['boxes'][i]
+
+                    boxX = []
+                    boxY = []
+                    for j in range(5):
+                        boxX.append(box.get_xdata()[j])
+                        boxY.append(box.get_ydata()[j])
+                    boxCoords = list(zip(boxX, boxY))
+                    # Alternate between Dark Khaki and Royal Blue
+                    k = testOrTrain[i]
+                    boxPolygon = matplotlib.patches.Polygon(boxCoords, facecolor = boxColors[k])
+                    plt.gca().add_patch(boxPolygon)
+
+                # Finally, add a basic legend
+                plt.figtext(0.135, 0.805, 'Training data', backgroundcolor = boxColors[0], color = 'black', weight='roman')
+                plt.figtext(0.135, 0.855, 'Testing data', backgroundcolor = boxColors[1], color='white', weight='roman')
+                plt.figtext(0.135, 0.755, 'Exact ref.', backgroundcolor = 'red', color='white', weight='roman')
+
+                plt.xlabel('Truth')
+                plt.ylabel('Prediction')
+                plt.title('{0} fit, R = {1}, {2}'.format(ftype, size, 'coarsening' if dset == 'nrafting2a' else 'rafting'))
+
+                plt.plot([0.0, 9.0], [0.0, 9.0], 'ro-')
+
+                plt.show()
+
+                testR2s[(ftype, size, dset, idx)] = ttr2
+                #testR2s.append(tr2)
+#%%
+
+#%%
+import pandas
+
+df = pandas.DataFrame(dict(zip(['Algo', 'size', 'dset', 'testIdx'], zip(*testR2s))))
+
+for idx, table in df.groupby(['dset', 'testIdx']):
+    algos = []
+    for idx2, table2 in table.groupby(['Algo']):
+        if table2.Algo.iloc[0] == 'NN':
+            continue
+
+        data = []
+        for ridx, row in table2.iterrows():
+            data.append((row['size'], testR2s[(row.Algo, row['size'], row.dset, row.testIdx)]))
+
+        data = sorted(data, key = lambda x : x[0])
+
+        sizes, ys = zip(*data)
+        algos.append(table2.Algo.iloc[0])
+        plt.plot(sizes, ys, '--')
+    plt.title('{0} for training idxs {1}'.format('coarsening' if table.dset.iloc[0] == 'nrafting2a' else 'rafting', trains[table.testIdx.iloc[0]]))
+    plt.ylim([-1.5, 1.5])
+    plt.xlabel('Feature detector window size (pixels)')
+    plt.ylabel('Test R^2')
+    plt.legend(algos, loc = 'bottom left')
+    plt.plot(sizes, [1.0] * len(sizes), 'k')
+    plt.plot(sizes, [0.0] * len(sizes), 'k')
+    plt.show()
+#sorted(testR2s, key = lambda x : (x[0], x[2], x[3], x[1]))
+#%%
+sizes = [32, 64, 128, 256]
+dsets = ['nrafting2a', 'rafting2a1h5']
+
+for ftype, size, dset in testR2s:
+for ftype in R2s:
+    fdata = R2s[ftype]
+    for dset in dsets:
+        for i, train in enumerate(trains):
+            ys = []
+            for size in sizes:
+                ys.append(testR2s[ftype][size][dset]
+            dsets = fdata[size]
+            trainsd = dsets[dset]['train']
+            testsd = dsets[dset]['test']
 
             for train, test in zip(trains, tests):
-            for y in range(10):
 
 
+plt.plot(bs, hogTestR2s2[:, 3:6], '--')
+plt.plot(bs, [0.0] * len(bs), 'k')
+plt.plot(bs, [1.0] * len(bs), 'k')
+plt.title('HOG feature descriptor (nrafting2a), train noise (0, 1, 4), test noise 0.87')
+plt.ylabel('R^2')
+plt.xlabel('Diameter of feature descriptor')
+plt.legend(['Two train points', 'Three train points', 'Five train points', 'reference levels (0.0 - 1.0)'], loc = 'bottom left')
+plt.ylim(-2, 1.5)
+plt.show()
+
+#%%
 
 def run_test():
     features = Features()
@@ -94,11 +244,6 @@ def run_test():
             Xs.extend(trainx)
 
             trainy = numpy.ones(len(trainx)) * y
-            #trainy = numpy.ones((trainx.shape[0], trainx.shape[1])) * y
-
-            #print trainx.shape
-            #print trainy.shape
-            #Ys.append(trainy)
             Ys.extend(trainy)
 
         Xs = numpy.array(Xs)
@@ -296,15 +441,6 @@ nnTestR2s2 = numpy.array(testR2s2)
 nnTrainR2s2 = numpy.array(trainR2s2)
 
 #%%
-plt.plot(bs, hogTestR2s2[:, 3:6], '--')
-plt.plot(bs, [0.0] * len(bs), 'k')
-plt.plot(bs, [1.0] * len(bs), 'k')
-plt.title('HOG feature descriptor (nrafting2a), train noise (0, 1, 4), test noise 0.87')
-plt.ylabel('R^2')
-plt.xlabel('Diameter of feature descriptor')
-plt.legend(['Two train points', 'Three train points', 'Five train points', 'reference levels (0.0 - 1.0)'], loc = 'bottom left')
-plt.ylim(-2, 1.5)
-plt.show()
 plt.plot(bs, lbpTestR2s2[:, 3:6], '--')
 plt.plot(bs, [0.0] * len(bs), 'k')
 plt.plot(bs, [1.0] * len(bs), 'k')
